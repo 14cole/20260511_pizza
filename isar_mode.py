@@ -759,6 +759,10 @@ def render(self) -> None:
     zmax = self.spin_plot_zmax.value()
     use_clamp = zmin < zmax
 
+    square_widget = getattr(self, "chk_isar_square", None)
+    square_aspect = bool(square_widget.isChecked()) if square_widget is not None else False
+    aspect_mode = "equal" if square_aspect else "auto"
+
     last_mesh = None
     overall_x_min = float("inf")
     overall_x_max = float("-inf")
@@ -775,7 +779,7 @@ def render(self) -> None:
             br["isar_display"].T,
             extent=[x_min, x_max, y_min, y_max],
             origin="lower",
-            aspect="auto",
+            aspect=aspect_mode,
             interpolation="nearest",
             cmap=cmap,
             vmin=zmin if use_clamp else None,
