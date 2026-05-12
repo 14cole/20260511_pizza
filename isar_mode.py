@@ -826,6 +826,26 @@ def render(self) -> None:
         for label in colorbar.ax.get_yticklabels():
             label.set_color(self._current_plot_text())
 
+    if square_aspect:
+        # Clip the visible window to the smaller of the two half-extents and
+        # centre it on (0, 0) so the image displays as a true square without
+        # collapsing into a sliver when the down-range and cross-range scene
+        # extents are very different (e.g. 60 ft × 4 ft, which would otherwise
+        # force matplotlib to a 15:1 plot box under aspect='equal').
+        half = min(
+            abs(overall_x_min), abs(overall_x_max),
+            abs(overall_y_min), abs(overall_y_max),
+        )
+        if not np.isfinite(half) or half <= 0.0:
+            half = max(
+                abs(overall_x_min), abs(overall_x_max),
+                abs(overall_y_min), abs(overall_y_max),
+            )
+        overall_x_min = -half
+        overall_x_max = half
+        overall_y_min = -half
+        overall_y_max = half
+
     self.spin_plot_xmin.blockSignals(True)
     self.spin_plot_xmax.blockSignals(True)
     self.spin_plot_ymin.blockSignals(True)

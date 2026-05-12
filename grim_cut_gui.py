@@ -916,9 +916,11 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
 
         chk_isar_square = QCheckBox("Square Aspect")
         chk_isar_square.setToolTip(
-            "Lock the image to equal cross-range / down-range pixel scale so the "
-            "calibration target isn't visually stretched. Off uses 'fill the axes' "
-            "scaling, which is faster to read but distorts geometry."
+            "Lock the image to equal cross-range / down-range scale and clip the "
+            "visible window to a square centred on (0, 0). The square is sized to "
+            "the smaller of the down-range / cross-range half-extents so the target "
+            "fills the box and the geometry is undistorted. Off uses 'fill the axes' "
+            "scaling, which packs more data on screen but stretches the geometry."
         )
         settings_layout.addWidget(chk_isar_square, row, 0, 1, 2)
         btn_isar_apply = QToolButton(text="Apply ISAR Settings")
