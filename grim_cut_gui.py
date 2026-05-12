@@ -654,7 +654,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         self.btn_dataset_save.clicked.connect(self._save_selected_datasets)
         self.btn_dataset_save_all.clicked.connect(self._save_all_datasets)
         self.btn_dataset_delete.clicked.connect(self._delete_selected_datasets)
-        for context in self._plot_contexts.values():
+        for tab_key, context in self._plot_contexts.items():
             context.btn_assembly_tree.toggled.connect(context.assembly_tree_panel.setVisible)
             context.btn_settings.toggled.connect(context.settings_frame.setVisible)
             context.btn_export_plot.clicked.connect(self._export_plot)
@@ -666,6 +666,14 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             context.btn_plot_text.clicked.connect(
                 lambda _=False, which="text": self._choose_plot_color(which)
             )
+            context.combo_polar_zero.currentIndexChanged.connect(self._on_polar_zero_changed)
+            context.btn_isar_apply.clicked.connect(self._on_isar_window_changed)
+            # On the ISAR tab every settings-frame change runs a full back-
+            # projection / FFT, which is too slow for per-keystroke spinbox
+            # updates. Defer everything through the Apply button instead.
+            # The plotting tab keeps live updates because its plots are cheap.
+            if tab_key == "isar":
+                continue
             context.spin_plot_xmin.valueChanged.connect(self._apply_plot_limits)
             context.spin_plot_xmax.valueChanged.connect(self._apply_plot_limits)
             context.spin_plot_ymin.valueChanged.connect(self._apply_plot_limits)
@@ -679,7 +687,6 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             context.combo_colormap.currentTextChanged.connect(self._on_colormap_changed)
             context.chk_colorbar.toggled.connect(self._on_waterfall_style_changed)
             context.chk_colorbar_shared.toggled.connect(self._on_waterfall_style_changed)
-            context.combo_polar_zero.currentIndexChanged.connect(self._on_polar_zero_changed)
             context.chk_plot_grid_visible.toggled.connect(self._apply_plot_theme)
             context.chk_colormap_invert.toggled.connect(self._on_colormap_changed)
             context.combo_isar_window.currentIndexChanged.connect(self._on_isar_window_changed)
@@ -691,6 +698,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             context.spin_isar_az_min.valueChanged.connect(self._on_isar_window_changed)
             context.spin_isar_az_max.valueChanged.connect(self._on_isar_window_changed)
             context.spin_isar_az_step.valueChanged.connect(self._on_isar_window_changed)
+            context.chk_isar_square.toggled.connect(self._on_isar_window_changed)
 
         self._activate_plot_tab("plotting")
         self.main_tabs.currentChanged.connect(self._on_main_tab_changed)
@@ -906,6 +914,22 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         settings_layout.addWidget(spin_isar_az_step, row, 3)
         row += 1
 
+        chk_isar_square = QCheckBox("Square Aspect")
+        chk_isar_square.setToolTip(
+            "Lock the image to equal cross-range / down-range pixel scale so the "
+            "calibration target isn't visually stretched. Off uses 'fill the axes' "
+            "scaling, which is faster to read but distorts geometry."
+        )
+        settings_layout.addWidget(chk_isar_square, row, 0, 1, 2)
+        btn_isar_apply = QToolButton(text="Apply ISAR Settings")
+        btn_isar_apply.setToolTip(
+            "Re-render the ISAR image with the current settings. On the ISAR tab, "
+            "settings changes are deferred until you click here so typing into "
+            "spinboxes doesn't trigger a back-projection per keystroke."
+        )
+        settings_layout.addWidget(btn_isar_apply, row, 2, 1, 4)
+        row += 1
+
         chk_plot_grid_visible = QCheckBox("Show Grid")
         chk_plot_grid_visible.setChecked(True)
         settings_layout.addWidget(chk_plot_grid_visible, row, 0)
@@ -1007,6 +1031,8 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             spin_isar_az_min=spin_isar_az_min,
             spin_isar_az_max=spin_isar_az_max,
             spin_isar_az_step=spin_isar_az_step,
+            chk_isar_square=chk_isar_square,
+            btn_isar_apply=btn_isar_apply,
             btn_plot_bg=btn_plot_bg,
             btn_plot_grid=btn_plot_grid,
             btn_plot_text=btn_plot_text,

@@ -49,6 +49,8 @@ class PlotContext:
     spin_isar_az_min: QDoubleSpinBox
     spin_isar_az_max: QDoubleSpinBox
     spin_isar_az_step: QDoubleSpinBox
+    chk_isar_square: QCheckBox
+    btn_isar_apply: QToolButton
     btn_plot_bg: QToolButton
     btn_plot_grid: QToolButton
     btn_plot_text: QToolButton
