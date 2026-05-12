@@ -190,6 +190,58 @@ class RoundDialog(QDialog):
         }
 
 
+class ExtrusionLengthDialog(QDialog):
+    """Ask the user for the extrusion length L (with units) when converting a
+    3D dBsm measurement into the 2D scattering-width dBke representation.
+
+    The conversion assumes broadside illumination of a uniform extruded body
+    and uses the textbook relation  σ_3D = (2 L² / λ) · σ_2D , so the linear-
+    sigma scale applied per frequency bin is λ_f / (2 L²) (c / (2 L² f) in Hz).
+    """
+
+    _UNIT_TO_M = {"m": 1.0, "in": 0.0254, "ft": 0.3048}
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Convert dBsm → dBke")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Extrusion length L (assumes broadside illumination of a uniform extruded body):"
+        ))
+
+        row = QHBoxLayout()
+        self._spin = QDoubleSpinBox()
+        self._spin.setDecimals(6)
+        self._spin.setRange(1.0e-6, 1.0e6)
+        self._spin.setSingleStep(1.0)
+        self._spin.setValue(24.0)
+        row.addWidget(self._spin)
+        self._combo = QComboBox()
+        self._combo.addItems(["in", "ft", "m"])
+        self._combo.setCurrentText("in")
+        row.addWidget(self._combo)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        layout.addWidget(QLabel(
+            "σ_2D = σ_3D · λ / (2 L²) → dBke = dBsm + 10·log₁₀(π / L²) "
+            "(frequency-independent offset)."
+        ))
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def length_m(self) -> float:
+        unit = self._combo.currentText().strip().lower()
+        factor = self._UNIT_TO_M.get(unit, 1.0)
+        return float(self._spin.value()) * factor
+
+    def display_text(self) -> str:
+        return f"{float(self._spin.value()):g} {self._combo.currentText()}"
+
+
 class ExportCsvDialog(QDialog):
     """Options for exporting RCS data to a CSV file."""
 
@@ -1951,23 +2003,16 @@ class DatasetOpsMixin:
         if datasets is None:
             return
 
-        length_m, ok = QInputDialog.getDouble(
-            self,
-            "Convert dBsm → dBke",
-            "Extracted length L (meters):",
-            1.0,
-            1e-9,
-            1e9,
-            6,
-        )
-        if not ok:
+        dlg = ExtrusionLengthDialog(parent=self)
+        if dlg.exec() != QDialog.Accepted:
             return
-        if length_m <= 0.0:
+        length_m = dlg.length_m()
+        length_label = dlg.display_text()
+        if length_m <= 0.0 or not np.isfinite(length_m):
             self.status.showMessage("Convert to dBke: length must be positive.")
             return
 
-        scale = 1.0 / float(length_m)
-        amp_scale = float(np.sqrt(scale))
+        c0 = 299_792_458.0
         produced = 0
         skipped: list[str] = []
         for name, dataset in datasets:
@@ -1976,11 +2021,24 @@ class DatasetOpsMixin:
                 skipped.append(f"{name} (already dBke)")
                 continue
             try:
-                new_power = dataset.rcs_power * scale
+                # Per-frequency extrusion conversion: σ_2D = σ_3D · λ_f / (2 L²)
+                # = σ_3D · c / (2 L² f).  Shape the (n_freq,) factor so it
+                # broadcasts over (n_az, n_el, n_freq, n_pol).
+                freq_hz = np.asarray(
+                    dataset._frequency_value_to_hz(dataset.frequencies), dtype=float
+                )
+                scale_per_f = np.where(
+                    np.isfinite(freq_hz) & (freq_hz > 0.0),
+                    c0 / (2.0 * length_m * length_m * freq_hz),
+                    np.nan,
+                )
+                scale_4d = scale_per_f.reshape(1, 1, -1, 1)
+                new_power = dataset.rcs_power * scale_4d
                 new_units = dict(dataset.units or {})
                 new_units["rcs_log_unit"] = "dBke"
                 if dataset.rcs_domain == "complex_amplitude":
-                    new_rcs = dataset.rcs * amp_scale
+                    amp_scale_4d = np.sqrt(np.maximum(scale_4d, 0.0)).astype(np.complex64)
+                    new_rcs = dataset.rcs * amp_scale_4d
                     result = RcsGrid(
                         dataset.azimuths,
                         dataset.elevations,
@@ -2006,10 +2064,10 @@ class DatasetOpsMixin:
             except Exception as exc:
                 skipped.append(f"{name} ({exc})")
                 continue
-            history = f"Convert to dBke (L={length_m:.6g} m): {name}"
+            history = f"Convert to dBke (extruded L={length_label}, {length_m:.6g} m): {name}"
             self._add_dataset_row(
                 result,
-                f"{name} [→ dBke L={length_m:.6g}m]",
+                f"{name} [→ dBke L={length_label}]",
                 history,
                 file_name="",
             )
@@ -2018,7 +2076,12 @@ class DatasetOpsMixin:
         if produced == 0:
             self.status.showMessage("Convert to dBke created 0 datasets.")
             return
-        msg = f"Convert to dBke created {produced} dataset(s) (L={length_m:.6g} m)."
+        # Frequency-independent dB offset (extrusion approximation) for the status line.
+        offset_db = 10.0 * np.log10(np.pi / (length_m * length_m))
+        msg = (
+            f"Convert to dBke created {produced} dataset(s) "
+            f"(L={length_label} → constant offset {offset_db:+.2f} dB)."
+        )
         if skipped:
             msg += f" Skipped: {', '.join(skipped)}"
         self.status.showMessage(msg)
